@@ -1,0 +1,53 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "serverfarmsNamePrefix": {
+            "type": "string"
+        },
+        "location": {
+            "type": "string"
+        },
+        "apiVersion": {
+            "type": "string",
+            "defaultValue": "2021-01-01"
+        }
+    },
+    "variables": {
+        "serverfarmsName": "[concat(parameters('serverfarmsNamePrefix'), '-', uniqueString(resourceGroup().id))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Web/serverfarms",
+            "apiVersion": "[parameters('apiVersion')]",
+            "name": "[variables('serverfarmsName')]",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "Y1",
+                "tier": "Dynamic",
+                "size": "Y1",
+                "family": "Y",
+                "capacity": 0
+            },
+            "kind": "functionapp",
+            "properties": {
+                "perSiteScaling": false,
+                "elasticScaleEnabled": false,
+                "maximumElasticWorkerCount": 1,
+                "isSpot": false,
+                "reserved": true,
+                "isXenon": false,
+                "hyperV": false,
+                "targetWorkerCount": 0,
+                "targetWorkerSizeId": 0,
+                "zoneRedundant": false
+            }
+        }
+    ],
+    "outputs": {
+        "serverfarmsExternalID": {
+            "value": "[resourceId('Microsoft.Web/serverfarms', variables('serverfarmsName'))]",
+            "type": "string"
+        }
+    }
+}

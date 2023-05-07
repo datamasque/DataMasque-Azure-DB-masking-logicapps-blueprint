@@ -1,0 +1,198 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "functionAppNamePrefix": {
+            "type": "string"
+        },
+        "location": {
+            "type": "string"
+        },
+        "serverfarmsExternalID": {
+            "type": "string"
+        },
+        "storageAccountName": {
+            "type": "string"
+        },
+        "storageBlobUri": {
+            "type": "string"
+        },
+        "storageAccountAccessKey": {
+            "type": "string"
+        },
+        "subscriptionID": {
+            "type": "string"
+        },
+        "keyvaultResourceGroup": {
+            "type": "string"
+        },
+        "tenantID": {
+            "type": "string"
+        },
+        "clientID": {
+            "type": "string"
+        },
+        "clientSecret": {
+            "type": "string"
+        },
+        "databaseID":{
+            "type": "string"
+        },
+        "datamasqueBaseUrl": {
+            "type": "string"
+        },
+        "datamasqueKeyVault": {
+            "type": "string"
+        },
+        "secretName": {
+            "type": "string"
+        },
+        "apiVersion": {
+            "type": "string",
+            "defaultValue": "2021-01-01"
+        }
+    },
+    "variables": {
+        "functionAppName": "[concat(parameters('functionAppNamePrefix'), '-', uniqueString(resourceGroup().id))]",
+        "appInsightsName": "[concat('dm-insights', '-', uniqueString(resourceGroup().id))]"
+    },
+    "resources": [
+        {
+            "type": "microsoft.insights/components",
+            "apiVersion": "2020-02-02",
+            "name": "[variables('appInsightsName')]",
+            "location": "[parameters('location')]",
+            "kind": "web",
+            "properties": {
+                "Application_Type": "web",
+                "ApplicationId": "[variables('appInsightsName')]"
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "[parameters('apiVersion')]",
+            "name": "[variables('functionAppName')]",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[resourceId('microsoft.insights/components/', variables('appInsightsName'))]"
+            ],
+            "kind": "functionapp,linux",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "enabled": true,
+                "hostNameSslStates": [
+                    {
+                        "name": "[concat(variables('functionAppName'), '.azurewebsites.net')]",
+                        "sslState": "Disabled",
+                        "hostType": "Standard"
+                    },
+                    {
+                        "name": "[concat(variables('functionAppName'), '.scm.azurewebsites.net')]",
+                        "sslState": "Disabled",
+                        "hostType": "Repository"
+                    }
+                ],
+                "serverFarmId": "[parameters('serverfarmsExternalID')]",
+                "reserved": true,
+                "isXenon": false,
+                "hyperV": false,
+                "siteConfig": {
+                    "numberOfWorkers": 1,
+                    "linuxFxVersion": "PYTHON|3.9",
+                    "acrUseManagedIdentityCreds": false,
+                    "alwaysOn": false,
+                    "http20Enabled": false,
+                    "functionAppScaleLimit": 200,
+                    "minimumElasticInstanceCount": 0,
+                    "appSettings": [
+                        {
+                            "name":"APPINSIGHTS_INSTRUMENTATIONKEY",
+                            "value":"[reference(concat('microsoft.insights/components/', variables('appInsightsName'))).InstrumentationKey]"
+                        },
+                        {
+                            "name": "FUNCTIONS_WORKER_RUNTIME",
+                            "value": "python"
+                        },
+                        {
+                            "name": "FUNCTIONS_EXTENSION_VERSION",
+                            "value": "~4"
+                        },
+                        {
+                            "name": "AzureWebJobsStorage",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', parameters('storageAccountAccessKey'), ';EndpointSuffix=core.windows.net')]"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', parameters('storageAccountName'), ';AccountKey=', parameters('storageAccountAccessKey'), ';EndpointSuffix=core.windows.net')]"
+                        },
+                        {
+                            "name": "WEBSITE_CONTENTSHARE",
+                            "value": "[toLower(variables('functionAppName'))]"
+                        },
+                        {
+                            "name": "STORAGE_URI",
+                            "value": "[parameters('storageBlobUri')]"
+                        },
+                        {
+                            "name": "STORAGE_KEY",
+                            "value": "[parameters('storageAccountAccessKey')]"
+                        },
+                        {
+                            "name": "DATAMASQUE_BASE_URL",
+                            "value": "[parameters('datamasqueBaseUrl')]"
+                        },
+                        {
+                            "name": "DATAMASQUE_KEYVAULT",
+                            "value": "[concat('https://', parameters('datamasqueKeyVault'), '.vault.azure.net/')]"
+                        },
+                        {
+                            "name": "SECRET_NAME",
+                            "value": "[parameters('secretName')]"
+                        },
+                        {
+                            "name": "SUBSCRIPTION_ID",
+                            "value": "[parameters('subscriptionID')]"
+                        },
+                        {
+                            "name": "RESOURCE_GROUP",
+                            "value": "[resourceGroup().name]"
+                        },
+                        {
+                            "name": "TENANT_ID",
+                            "value": "[parameters('tenantID')]"
+                        },
+                        {
+                            "name": "CLIENT_ID",
+                            "value": "[parameters('clientID')]"
+                        },
+                        {
+                            "name": "CLIENT_SECRET",
+                            "value": "[parameters('clientSecret')]"
+                        },
+                        {
+                            "name": "DATABASE_ID",
+                            "value": "[parameters('databaseID')]"
+                        }
+                    ]
+                },
+                "httpsOnly": false
+            }
+        }
+    ],
+    "outputs": {
+        "functionappName": {
+            "type": "string",
+            "value": "[variables('functionAppName')]"
+        },
+        "principalID": {
+            "type": "string",
+            "value": "[reference(resourceId('Microsoft.Web/sites', variables('functionAppName')), parameters('apiVersion'), 'Full').identity.principalId]"
+        },
+        "keyVaultID": {
+            "type": "string",
+            "value": "[resourceId(parameters('subscriptionID'), parameters('keyvaultResourceGroup'),'Microsoft.KeyVault/vaults', parameters('datamasqueKeyVault'))]"
+        }
+    }
+}

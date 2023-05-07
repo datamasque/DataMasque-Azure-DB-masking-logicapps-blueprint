@@ -1,0 +1,101 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflowsNamePrefix": {
+            "type": "string"
+        },
+        "httpTrigger": {
+            "type": "string"
+        },
+        "dbInstanceIdentifier": {
+            "type": "string"
+        },
+        "DATAMASQUE_CONNECTION_ID": {
+            "type": "string"
+        },
+        "DATAMASQUE_RULESET_ID": {
+            "type": "string"
+        },
+        "sourceResourceGroup": {
+            "type": "string"
+        },
+        "location": {
+            "type": "string"
+        },
+        "apiVersion": {
+            "type": "string",
+            "defaultValue": "2017-07-01"
+        }
+    },
+    "variables": {
+        "workflowsName": "[concat(parameters('workflowsNamePrefix'), '-', uniqueString(resourceGroup().id))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "[parameters('apiVersion')]",
+            "name": "[variables('workflowsName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "state": "Disabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "DBInstanceIdentifier": {
+                            "defaultValue": "[parameters('dbInstanceIdentifier')]",
+                            "type": "String"
+                        },
+                        "ResourceGroup": {
+                            "defaultValue": "[parameters('sourceResourceGroup')]",
+                            "type": "String"
+                        },
+                        "DATAMASQUE_CONNECTION_ID": {
+                            "defaultValue": "[parameters('DATAMASQUE_CONNECTION_ID')]",
+                            "type": "String"
+                        },
+                        "DATAMASQUE_RULESET_ID": {
+                            "defaultValue": "[parameters('DATAMASQUE_RULESET_ID')]",
+                            "type": "String"
+                        }
+                    },
+                    "triggers": {
+                        "Recurrence": {
+                            "recurrence": {
+                                "frequency": "Day",
+                                "interval": 7
+                            },
+                            "evaluatedRecurrence": {
+                                "frequency": "Day",
+                                "interval": 7
+                            },
+                            "type": "Recurrence"
+                        }
+                    },
+                    "actions": {
+                        "HTTP": {
+                            "runAfter": {},
+                            "type": "Http",
+                            "inputs": {
+                                "body": {
+                                    "DBInstanceIdentifier": "@{parameters('DBInstanceIdentifier')}",
+                                    "ResourceGroup": "@{parameters('ResourceGroup')}",
+                                    "DATAMASQUE_CONNECTION_ID": "@{parameters('DATAMASQUE_CONNECTION_ID')}",
+                                    "DATAMASQUE_RULESET_ID": "@{parameters('DATAMASQUE_RULESET_ID')}"
+                                },
+                                "headers": {
+                                    "Content-Type": "application/json"
+                                },
+                                "method": "POST",
+                                "uri": "[parameters('httpTrigger')]"
+                            }
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {}
+            }
+        }
+    ]
+}

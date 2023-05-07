@@ -1,0 +1,445 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "workflowsNamePrefix": {
+            "type": "string"
+        },
+        "functionAppName": {
+            "type": "string"
+        },
+        "dbInstanceIdentifier": {
+            "type": "string"
+        },
+        "DATAMASQUE_CONNECTION_ID": {
+            "type": "string"
+        },
+        "DATAMASQUE_RULESET_ID": {
+            "type": "string"
+        },
+        "sourceResourceGroup": {
+            "type": "string"
+        },
+        "intervalTime": {
+            "type": "string",
+            "defaultValue": 120
+        },
+        "location": {
+            "type": "string"
+        },
+        "apiVersion": {
+            "type": "string",
+            "defaultValue": "2017-07-01"
+        }
+    },
+    "variables": {
+        "workflowsName": "[concat(parameters('workflowsNamePrefix'), '-', uniqueString(resourceGroup().id))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "apiVersion": "[parameters('apiVersion')]",
+            "name": "[variables('workflowsName')]",
+            "location": "[parameters('location')]",
+            "properties": {
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "DBInstanceIdentifier": {
+                            "defaultValue": "[parameters('dbInstanceIdentifier')]",
+                            "type": "String"
+                        },
+                        "ResourceGroup": {
+                            "defaultValue": "[parameters('sourceResourceGroup')]",
+                            "type": "String"
+                        },
+                        "DATAMASQUE_CONNECTION_ID": {
+                            "defaultValue": "[parameters('DATAMASQUE_CONNECTION_ID')]",
+                            "type": "String"
+                        },
+                        "DATAMASQUE_RULESET_ID": {
+                            "defaultValue": "[parameters('DATAMASQUE_RULESET_ID')]",
+                            "type": "String"
+                        }
+                    },
+                    "triggers": {
+                        "manual": {
+                            "type": "Request",
+                            "kind": "Http",
+                            "inputs": {
+                                "schema": {
+                                    "properties": {
+                                        "object": {}
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "copy_source_database_to_staging_sql_server": {
+                            "runAfter": {
+                                "create_firewall_for_staging_sql_server": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": "@body('create_firewall_for_staging_sql_server')",
+                                "function": {
+                                    "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/copy_source_database_to_staging_sql_server')]"
+                                }
+                            }
+                        },
+                        "create_firewall_for_staging_sql_server": {
+                            "runAfter": {
+                                "describe_network": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": "@body('describe_network')",
+                                "function": {
+                                    "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/create_firewall_for_staging_sql_server')]"
+                                }
+                            }
+                        },
+                        "create_staging_sql_server": {
+                            "runAfter": {
+                                "describe_sql_server": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": "@body('describe_sql_server')",
+                                "function": {
+                                    "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/create_staging_sql_server')]"
+                                }
+                            }
+                        },
+                        "datamasque_run": {
+                            "runAfter": {
+                                "waiting_until_database_copy_is_in_progressy_is_in_progress": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": "@body('copy_source_database_to_staging_sql_server')",
+                                "function": {
+                                    "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/datamasque_run')]"
+                                }
+                            }
+                        },
+                        "delete_staging_sql_server": {
+                            "runAfter": {
+                                "waiting_until_export_database_to_blob_storage_is_in_progress": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": "@body('export_masking_database')",
+                                "function": {
+                                    "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/delete_staging_sql_server')]"
+                                }
+                            }
+                        },
+                        "describe_network": {
+                            "runAfter": {
+                                "waiting_until_staging_SQL_server_creation_is_in_progress": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": "@body('create_staging_sql_server')",
+                                "function": {
+                                    "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/describe_network')]"
+                                }
+                            }
+                        },
+                        "describe_source_database": {
+                            "runAfter": {},
+                            "type": "Function",
+                            "inputs": {
+                                "body": {
+                                    "DATAMASQUE_CONNECTION_ID": "@{if(not(equals(triggerBody()?['DATAMASQUE_CONNECTION_ID'], '')), parameters('DATAMASQUE_CONNECTION_ID'), triggerBody()?['DATAMASQUE_CONNECTION_ID'])}",
+                                    "DATAMASQUE_RULESET_ID": "@{if(not(equals(triggerBody()?['DATAMASQUE_RULESET_ID'], '')), parameters('DATAMASQUE_RULESET_ID'), triggerBody()?['DATAMASQUE_RULESET_ID'])}",
+                                    "DBInstanceIdentifier": "@{if(not(equals(triggerBody()?['DBInstanceIdentifier'], '')), parameters('DBInstanceIdentifier'), triggerBody()?['DBInstanceIdentifier'])}",
+                                    "ResourceGroup": "@{if(not(equals(triggerBody()?['ResourceGroup'], '')), parameters('ResourceGroup'), triggerBody()?['ResourceGroup'])}"
+                                },
+                                "function": {
+                                    "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/describe_source_database')]"
+                                }
+                            }
+                        },
+                        "describe_sql_server": {
+                            "runAfter": {
+                                "describe_source_database": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": "@body('describe_source_database')",
+                                "function": {
+                                    "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/describe_sql_server')]"
+                                }
+                            }
+                        },
+                        "export_masking_database": {
+                            "runAfter": {
+                                "waiting_until_masking_job_is_completed": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Function",
+                            "inputs": {
+                                "body": "@body('datamasque_run')",
+                                "function": {
+                                    "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/export_masking_database')]"
+                                }
+                            }
+                        },
+                        "waiting_until_export_database_to_blob_storage_is_in_progress": {
+                            "actions": {
+                                "check_status_of_database_export_to_blob_storage": {
+                                    "runAfter": {},
+                                    "type": "Function",
+                                    "inputs": {
+                                        "body": "@body('export_masking_database')",
+                                        "function": {
+                                            "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/wait_a_process_in_azure')]"
+                                        }
+                                    }
+                                },
+                                "wait_for_database_export_to_complete": {
+                                    "runAfter": {
+                                        "parse_json_response_of_export_database": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Wait",
+                                    "inputs": {
+                                        "interval": {
+                                            "count": "[parameters('intervalTime')]",
+                                            "unit": "Second"
+                                        }
+                                    }
+                                },
+                                "parse_json_response_of_export_database": {
+                                    "runAfter": {
+                                        "check_status_of_database_export_to_blob_storage": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@body('check_status_of_database_export_to_blob_storage')",
+                                        "schema": {
+                                            "properties": {
+                                                "object": {}
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "export_masking_database": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": "@not(equals(body('parse_json_response_of_export_database')?['status'], 'InProgress'))",
+                            "limit": {
+                                "count": "[parameters('intervalTime')]",
+                                "timeout": "PT1H"
+                            },
+                            "type": "Until"
+                        },
+                        "waiting_until_staging_SQL_server_creation_is_in_progress": {
+                            "actions": {
+                                "check_status_of_the_staging_SQL_server": {
+                                    "runAfter": {},
+                                    "type": "Function",
+                                    "inputs": {
+                                        "body": "@body('create_staging_sql_server')",
+                                        "function": {
+                                            "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/wait_a_process_in_azure')]"
+                                        }
+                                    }
+                                },
+                                "delay_staging_server_creation": {
+                                    "runAfter": {
+                                        "parse_json_response_from_azure_sql_status_check": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Wait",
+                                    "inputs": {
+                                        "interval": {
+                                            "count": "[parameters('intervalTime')]",
+                                            "unit": "Second"
+                                        }
+                                    }
+                                },
+                                "parse_json_response_from_azure_sql_status_check": {
+                                    "runAfter": {
+                                        "check_status_of_the_staging_SQL_server": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@body('check_status_of_the_staging_SQL_server')",
+                                        "schema": {
+                                            "properties": {
+                                                "object": {}
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "create_staging_sql_server": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": "@not(equals(body('parse_json_response_from_azure_sql_status_check')?['status'], 'InProgress'))",
+                            "limit": {
+                                "count": "[parameters('intervalTime')]",
+                                "timeout": "PT1H"
+                            },
+                            "type": "Until"
+                        },
+                        "waiting_until_database_copy_is_in_progressy_is_in_progress": {
+                            "actions": {
+                                "check_progress_status_of_copy_source_database_to_the_staging_SQL_server": {
+                                    "runAfter": {},
+                                    "type": "Function",
+                                    "inputs": {
+                                        "body": "@body('copy_source_database_to_staging_sql_server')",
+                                        "function": {
+                                            "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/wait_a_process_in_azure')]"
+                                        }
+                                    }
+                                },
+                                "delay_waiting_for_the_database_copy": {
+                                    "runAfter": {
+                                        "parse_json_for_response_from_check_progress_status_of_copy_source_database": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Wait",
+                                    "inputs": {
+                                        "interval": {
+                                            "count": "[parameters('intervalTime')]",
+                                            "unit": "Second"
+                                        }
+                                    }
+                                },
+                                "parse_json_for_response_from_check_progress_status_of_copy_source_database": {
+                                    "runAfter": {
+                                        "check_progress_status_of_copy_source_database_to_the_staging_SQL_server": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@body('check_progress_status_of_copy_source_database_to_the_staging_SQL_server')",
+                                        "schema": {
+                                            "properties": {
+                                                "object": {}
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "copy_source_database_to_staging_sql_server": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": "@not(equals(body('parse_json_for_response_from_check_progress_status_of_copy_source_database')?['status'], 'InProgress'))",
+                            "limit": {
+                                "count": "[parameters('intervalTime')]",
+                                "timeout": "PT1H"
+                            },
+                            "type": "Until"
+                        },
+                        "waiting_until_masking_job_is_completed": {
+                            "actions": {
+                                "check_status_of_DataMasque_job": {
+                                    "runAfter": {},
+                                    "type": "Function",
+                                    "inputs": {
+                                        "body": "@body('datamasque_run')",
+                                        "function": {
+                                            "id": "[concat(resourceId('Microsoft.Web/sites', parameters('functionAppName')), '/functions/wait_datamasque_job')]"
+                                        }
+                                    }
+                                },
+                                "wait_for_masking_job_to_completed_job": {
+                                    "runAfter": {
+                                        "parse_json_response_from_DataMasque_job_status": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Wait",
+                                    "inputs": {
+                                        "interval": {
+                                            "count": "[parameters('intervalTime')]",
+                                            "unit": "Second"
+                                        }
+                                    }
+                                },
+                                "parse_json_response_from_DataMasque_job_status": {
+                                    "runAfter": {
+                                        "check_status_of_DataMasque_job": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "ParseJson",
+                                    "inputs": {
+                                        "content": "@body('check_status_of_DataMasque_job')",
+                                        "schema": {
+                                            "properties": {
+                                                "object": {}
+                                            },
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "datamasque_run": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": "@not(equals(body('parse_json_response_from_DataMasque_job_status')?['status'], 'running'))",
+                            "limit": {
+                                "count": "[parameters('intervalTime')]",
+                                "timeout": "PT1H"
+                            },
+                            "type": "Until"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {}
+            }
+        }
+    ],
+    "outputs": {
+        "httpsTrigger": {
+            "type": "string",
+            "value": "[listCallbackURL(concat(resourceId('Microsoft.Logic/workflows/', variables('workflowsName')), '/triggers/manual'), parameters('apiVersion')).value]"
+        }
+    }
+}
