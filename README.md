@@ -54,7 +54,7 @@ You can execute the step function manually:
 ```json
 { "DBInstanceIdentifier": "source_sql_database", "ResouceGroup": "source_resource_group", "DATAMASQUE_CONNECTION_ID": "20f5436c-74a5-4a08-8e12-0c00f5f2787a", "DATAMASQUE_RULESET_ID": "d0725d9d-c7bf-4736-863d-a994c0f3f8e3" }
 ```
-The DataMasque connection ID provided in above json #must# not be configured to connect to the production database.
+The DataMasque connection ID provided in above json **must** not be configured to connect to the production database.
 
 #### Schedule data masking execution
 Creates a Logic App that shedules a trigger once a week which is disabled by default.
