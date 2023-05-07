@@ -93,15 +93,15 @@ The following table describes the states and details of the step function defini
 | Describe source database | Fetch database with the latest creation time in the target Azure SQL server (single database)|
 | Describe SQL server    | Fetch the configuration of the target Azure SQL server                   |
 | Create staging SQL server | Create a staging Azure SQL server from the configuration of the target Azure SQL server             |
-| Wait a process in Azure     | Until the staging SQL server is created                                |
+| Wait      | Until staging SQL server is being created                                |
 | Describe network       | Get all public ip addresses in resource group |
 | Create Firewall for staging SQL server          | Create a firewall rule for the staging Azure SQL server          |
 | Copy source database to the staging SQL server         | A database copy is a transactionally consistent snapshot of the source database as of a point in time after the copy request is initialed                     |
-| Wait a process in Azure        | Waiting for the database copy to completed                             |
+| Wait        | Until database copy is in progress                             |
 | Datamasque API run         | Create a masking job based on the connection id and ruleset provided                                   |
-| Wait Datamasque Job         | Waiting until masking job is completed                                   |
+| Wait    | Until masking job is completed                                   |
 | Export masking database         | Export a masking database to blob storage                                   |
-| Wait a process in Azure         | Until the process of exporting database to blob storage is finished                                   |
+| Wait a        | Until database export to blob storage is in progress                                   |
 | Delete staging sql server         | Delete the staging Azure SQL server                                   |
 
 ![Azure function definition](workflow_logicapp.png "Azure Step function")
