@@ -2,7 +2,7 @@
 ## Introduction
 The diagram below describes the DataMasque reference architecture in Azure. This blueprint can be used to create backup copy of masked production Azure SQL database which then can be used to provision the masked non-production database.
 
-![Reference deployment](../create_masked_sqldatabase.png "Reference deployment")
+![Reference deployment](Datamasque-azure-blueprints.drawio.png "Reference deployment")
 
 Following Azure resources will be provisioned by the blueprint:
 * Azure Logic App
@@ -16,10 +16,14 @@ Following Azure resources will be provisioned by the blueprint:
 * Python runtime 3.9.7 installed.
 * A DataMasque instance.
 * Azure SQL server and SQL database (source database).
-* DataMasque `connection id` and `ruleset id`.
+* DataMasque Connection ID and Ruleset ID must be provided. Ensure that the connection is set up to connect to source_database_name`-datamasque`.
+
+For example, if your source SQL Server name is dm-azure-mssql.database.windows.net, your connection should be configured to ae-dm-azure-mssql-datamasque.database.windows.net.
+
+DataMasque `connection id` and `ruleset id`. Please make sure that the connection is configured to connect to source_database_name+`datamasque`. E.g. If your source SQL server name is `dm-azure-mssql.database.windows.net` then your connection should be configured to connect to `ae-dm-azure-mssql-datamasque.database.windows.net`
 
 ### Step-by-step process to deploy the logic app.
-###### Store the DataMasque instance credentials and account login Azure SQL server in Azure Key vault.
+###### Store the DataMasque instance credentials and login credentials for Azure SQL server in Azure Key vault.
 The secret need to follow the format as below :
 ```json
 {
@@ -43,18 +47,22 @@ The secret need to follow the format as below :
 | StorageKey                                                                                                    | Storage Account Key.                                                                                                          |
 
 ###### The blueprint relies on below network configurations to successfully complete the execution.
-* Allow connectivity between the source Azure SQL server allow inbound connections from the DataMasque instance. The configuration will be replicated when creating the staging Azure SQL server.
+* Allow connectivity between the source Azure SQL server allow inbound connections from the DataMasque instance. The configuration will be replicated on the staging Azure SQL server thats created during execution.
 * The DataMasque instance should allow inbound connections from the **datamasque_run**  and **wait_datamasque_job** functions.
 * Grant permissions for Azure function to use the Key vault secret.
-* Provides access key of Azure Storage allow inbound connections from Azure Function.
 
-### Step Function Execution
+### Logic App Execution
 #### Invoke an execution manually
-You can execute the step function manually:
+You can manually trigger the Logic App by providing the JSON below. The Logic App will use the values from the trigger body instead of the predefined parameters.
 ```json
-{ "DBInstanceIdentifier": "source_sql_database", "ResouceGroup": "source_resource_group", "DATAMASQUE_CONNECTION_ID": "20f5436c-74a5-4a08-8e12-0c00f5f2787a", "DATAMASQUE_RULESET_ID": "d0725d9d-c7bf-4736-863d-a994c0f3f8e3" }
+{
+    "DBInstanceIdentifier": "source_sql_database",
+    "ResourceGroup": "source_resource_group",
+    "DATAMASQUE_CONNECTION_ID": "20f5436c-74a5-4a08-8e12-0c00f5f2787a",
+    "DATAMASQUE_RULESET_ID": "d0725d9d-c7bf-4736-863d-a994c0f3f8e3"
+}
 ```
-The DataMasque connection ID provided in above json **must** not be configured to connect to the production database.
+The DataMasque connection ID provided in above json **must not** be configured to connect to the production database.
 
 #### Schedule data masking execution
 Creates a Logic App that shedules a trigger once a week which is disabled by default.
