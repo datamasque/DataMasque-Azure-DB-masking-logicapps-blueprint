@@ -1,6 +1,8 @@
 # Template directories
 **/.terraform
 **/*.tfplan
+**/*.tfstate
+**/*.tfstate.backup
 
 #ignore DS_Store
 **/.DS_Store
