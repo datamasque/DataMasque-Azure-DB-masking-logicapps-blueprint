@@ -16,11 +16,7 @@ Following Azure resources will be provisioned by the blueprint:
 * Python runtime 3.9.7 installed.
 * A DataMasque instance.
 * Azure SQL server and SQL database (source database).
-* DataMasque Connection ID and Ruleset ID must be provided. Ensure that the connection is set up to connect to source_database_name`-datamasque`.
-
-For example, if your source SQL Server name is dm-azure-mssql.database.windows.net, your connection should be configured to ae-dm-azure-mssql-datamasque.database.windows.net.
-
-DataMasque `connection id` and `ruleset id`. Please make sure that the connection is configured to connect to source_database_name+`datamasque`. E.g. If your source SQL server name is `dm-azure-mssql.database.windows.net` then your connection should be configured to connect to `ae-dm-azure-mssql-datamasque.database.windows.net`
+* DataMasque Connection ID and Ruleset ID must be provided. Ensure that the connection is set up to connect to source_database_name`-datamasque`. For example, if your source SQL Server name is `dm-azure-mssql.database.windows.net`, your connection should be configured to `dm-azure-mssql-datamasque.database.windows.net`.
 
 ### Step-by-step process to deploy the logic app.
 ###### Store the DataMasque instance credentials and login credentials for Azure SQL server in Azure Key vault.
