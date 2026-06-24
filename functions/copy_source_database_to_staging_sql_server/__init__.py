@@ -3,6 +3,7 @@ import json
 import os
 import azure.functions as func
 from ..services.providers import MicrosoftSQL
+from ..services.credentials import service_principal
 
 resource_group = os.environ['RESOURCE_GROUP']
 
@@ -11,9 +12,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     # get content of body request
     req_body = req.get_json()
-    tenant_id = req_body.get('TenantID')
-    client_id = req_body.get('ClientID')
-    secret = req_body.get('ClientSecret')
+    tenant_id, client_id, secret = service_principal(req_body)
     DATAMASQUE_CONNECTION_ID = req_body.get('DATAMASQUE_CONNECTION_ID')
     DATAMASQUE_RULESET_ID = req_body.get('DATAMASQUE_RULESET_ID')
     sql_service = MicrosoftSQL(tenant_id, client_id, secret, resource_group)
@@ -40,12 +39,9 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         "DBSnapshotIdentifier": db_snapshot_identifier,
         "SubscriptionID": subscription_id,
         "ResourceGroup": req_body.get('ResourceGroup'),
-        "TenantID": tenant_id,
-        "ClientID": client_id,
-        "ClientSecret": secret,
         "DATAMASQUE_CONNECTION_ID": DATAMASQUE_CONNECTION_ID,
         "DATAMASQUE_RULESET_ID": DATAMASQUE_RULESET_ID
     }
-    
+
     return func.HttpResponse(json.dumps(data), mimetype="application/json", status_code=res.status_code)
 

@@ -6,6 +6,7 @@ import datetime
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
 from ..services.providers import MicrosoftSQL
+from ..services.credentials import service_principal
 
 datamasque_keyvault = os.environ['DATAMASQUE_KEYVAULT']
 secret_name = os.environ['SECRET_NAME']
@@ -16,9 +17,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     # get content of body request
     req_body = req.get_json()
-    tenant_id = req_body.get('TenantID')
-    client_id = req_body.get('ClientID')
-    secret = req_body.get('ClientSecret')
+    tenant_id, client_id, secret = service_principal(req_body)
     sql_service = MicrosoftSQL(tenant_id, client_id, secret, resource_group)
     
     subscription_id = req_body.get('SubscriptionID')
@@ -50,10 +49,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         "MessageQueue": res.json() if str(res.status_code)[0:1] != "2" else dict(res.headers).get('Azure-AsyncOperation', ""),
         "DBInstanceIdentifier": source_db_instance_identifier,
         "SubscriptionID": subscription_id,
-        "ResourceGroup": req_body.get('ResourceGroup'),
-        "TenantID": tenant_id,
-        "ClientID": client_id,
-        "ClientSecret": secret
+        "ResourceGroup": req_body.get('ResourceGroup')
     }
 
     return func.HttpResponse(json.dumps(data), mimetype="application/json", status_code=res.status_code)

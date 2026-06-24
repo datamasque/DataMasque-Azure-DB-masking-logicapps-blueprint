@@ -32,7 +32,8 @@
             "kind": "Storage",
             "properties": {
                 "minimumTlsVersion": "TLS1_2",
-                "allowBlobPublicAccess": true,
+                "allowBlobPublicAccess": false,
+                "//networkAcls": "ponytail: defaultAction stays Allow because this account also backs AzureWebJobsStorage/content-share; tightening to Deny needs the function app's outbound IPs/VNet allow-listed first. Private access is enforced by allowBlobPublicAccess=false + container publicAccess=None.",
                 "networkAcls": {
                     "bypass": "AzureServices",
                     "virtualNetworkRules": [],
@@ -68,7 +69,7 @@
                 },
                 "defaultEncryptionScope": "$account-encryption-key",
                 "denyEncryptionScopeOverride": false,
-                "publicAccess": "Blob"
+                "publicAccess": "None"
             }
         }
     ],

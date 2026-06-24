@@ -3,6 +3,7 @@ import json
 import os
 import azure.functions as func
 from ..services.providers import MicrosoftSQL
+from ..services.credentials import service_principal
 
 resource_group = os.environ['RESOURCE_GROUP']
 
@@ -11,9 +12,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     # get content of body request
     req_body = req.get_json()
-    tenant_id = req_body.get('TenantID')
-    client_id = req_body.get('ClientID')
-    secret = req_body.get('ClientSecret')
+    tenant_id, client_id, secret = service_principal(req_body)
     sql_service = MicrosoftSQL(tenant_id, client_id, secret, resource_group)
     
     message_queue = req_body.get('MessageQueue')
