@@ -88,9 +88,12 @@ def check_run(run_id):
 
     return runs(base_url, user_token, run_id) # replace '180' with some run id
 
-# DataMasque run statuses that mean the run is still in flight; anything else
-# (finished/errored/cancelled/...) is terminal and the wait loop should exit.
-IN_PROGRESS_STATUSES = {'queued', 'running'}
+# DataMasque run statuses that mean the run is still in flight; the wait loop
+# should keep polling until one of these clears.
+IN_PROGRESS_STATUSES = {'queued', 'validating', 'running', 'cancelling'}
+# Statuses that mean masking completed; export must not run for any other
+# terminal status. finished_with_warnings still means every rule was applied.
+SUCCESS_STATUSES = {'finished', 'finished_with_warnings'}
 
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
@@ -103,9 +106,14 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     if res.status_code == 200:
         status = body.get('status')
         # Surface a stable in_progress flag so the Logic App Until loop does not
-        # depend on the exact status string, and never abort the workflow (a 500
-        # here would skip staging-server cleanup). Terminal failures are routed
-        # to cleanup by the workflow's runAfter Failed paths.
+        # depend on the exact status string.
         body['in_progress'] = status in IN_PROGRESS_STATUSES
+        # A terminal non-success status (failed/cancelled/errored) must fail this
+        # action so the masking_pipeline scope fails and routes to cleanup instead
+        # of exporting an unmasked/partially-masked database. Only 'finished' is
+        # allowed to fall through to export.
+        if not body['in_progress'] and status not in SUCCESS_STATUSES:
+            logging.error('DataMasque run ended in terminal non-success status: %s', status)
+            return func.HttpResponse(json.dumps(body), mimetype="application/json", status_code=500)
 
     return func.HttpResponse(json.dumps(body), mimetype="application/json", status_code=res.status_code)
