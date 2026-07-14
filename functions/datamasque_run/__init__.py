@@ -7,6 +7,8 @@ import json
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
 
+from ..services.datamasque import verify_tls, run_secret
+
 base_url = os.environ['DATAMASQUE_BASE_URL'] # change base url to the url of the DataMasque instance
 datamasque_keyvault = os.environ['DATAMASQUE_KEYVAULT']
 secret_name = os.environ['SECRET_NAME']
@@ -37,8 +39,8 @@ def login(base_url: str, username: str, password: str):
     """
     api = 'api/auth/token/login/'
     data = {'username': username, 'password': password}
-    response = requests.post(base_url+api, data=data, verify=False)
-    
+    response = requests.post(base_url+api, data=data, verify=verify_tls())
+
     return response.json()
 
 def create_run(base_url, token, run_dict):
@@ -53,7 +55,7 @@ def create_run(base_url, token, run_dict):
         'connection': 'connection_id',
         'ruleset': 'ruleset_id',
         'options': {
-            'dry_run': False, 'buffer_size': 10000, 'continue_on_failure': False, 'run_secret': 'thisismynewrunsecret'
+            'dry_run': False, 'buffer_size': 10000, 'continue_on_failure': False, 'run_secret': '<from DATAMASQUE_RUN_SECRET>'
             }
        }
     status_code[201] == Success
@@ -73,8 +75,8 @@ def create_run(base_url, token, run_dict):
          }
     """
     api = 'api/runs/'
-    response = requests.post(base_url+api, json=run_dict, headers=token, verify=False)
-    
+    response = requests.post(base_url+api, json=run_dict, headers=token, verify=verify_tls())
+
     return response
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
@@ -98,20 +100,19 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         'connection': DATAMASQUE_CONNECTION_ID,
         'ruleset': DATAMASQUE_RULESET_ID,
         'options': {
-            'dry_run': False, 'buffer_size': 10000, 'continue_on_failure': False, 'run_secret': 'thisismynewrunsecret'
+            'dry_run': False, 'buffer_size': 10000, 'continue_on_failure': False, 'run_secret': run_secret()
         }
     }
-    
+
     res = create_run(base_url, token, run_dict)
+    # Service-principal credentials are read from app settings downstream, not
+    # echoed back in the response body.
     data = {
         "RunID": res.json().get('id', None),
         "DBInstanceIdentifier": req_body.get('DBInstanceIdentifier'),
         "DBSnapshotIdentifier": req_body.get('DBSnapshotIdentifier'),
         "SubscriptionID": req_body.get('SubscriptionID'),
-        "ResourceGroup": req_body.get('ResourceGroup'),
-        "TenantID": req_body.get('TenantID'),
-        "ClientID": req_body.get('ClientID'),
-        "ClientSecret": req_body.get('ClientSecret')
+        "ResourceGroup": req_body.get('ResourceGroup')
     }
 
     return func.HttpResponse(json.dumps(data), mimetype="application/json", status_code=res.status_code)

@@ -7,6 +7,8 @@ import json
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
 
+from ..services.datamasque import verify_tls
+
 base_url = os.environ['DATAMASQUE_BASE_URL'] # change base url to the url of the DataMasque instance
 datamasque_keyvault = os.environ['DATAMASQUE_KEYVAULT']
 secret_name = os.environ['SECRET_NAME']
@@ -33,8 +35,8 @@ def login(base_url, username, password):
     """
     api = 'api/auth/token/login/'
     data = {'username' : username, 'password': password}
-    response = requests.post(base_url+api, data=data, verify=False)
-    
+    response = requests.post(base_url+api, data=data, verify=verify_tls())
+
     return response.json()
 
 def runs(base_url, token, run_id=None):
@@ -68,8 +70,8 @@ def runs(base_url, token, run_id=None):
         api = 'api/runs/{}/'.format(run_id)
     else:
         api = 'api/runs/'
-    response = requests.get(base_url+api, headers=token, verify=False)
-    
+    response = requests.get(base_url+api, headers=token, verify=verify_tls())
+
     return response
 
 def check_run(run_id):
@@ -86,15 +88,32 @@ def check_run(run_id):
 
     return runs(base_url, user_token, run_id) # replace '180' with some run id
 
+# DataMasque run statuses that mean the run is still in flight; the wait loop
+# should keep polling until one of these clears.
+IN_PROGRESS_STATUSES = {'queued', 'validating', 'running', 'cancelling'}
+# Statuses that mean masking completed; export must not run for any other
+# terminal status. finished_with_warnings still means every rule was applied.
+SUCCESS_STATUSES = {'finished', 'finished_with_warnings'}
+
+
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Check progress status in DataMasque')
     # get content of body request
     req_body = req.get_json()
-    
-    res = check_run(req_body.get('RunID'))
-    if res.status_code == 200:
-        status = res.json().get('status')
-        if status == 'failed' or status == 'cancelled':
-            return func.HttpResponse(json.dumps(res.json()), mimetype="application/json", status_code=500)
 
-    return func.HttpResponse(json.dumps(res.json()), mimetype="application/json", status_code=res.status_code)
+    res = check_run(req_body.get('RunID'))
+    body = res.json()
+    if res.status_code == 200:
+        status = body.get('status')
+        # Surface a stable in_progress flag so the Logic App Until loop does not
+        # depend on the exact status string.
+        body['in_progress'] = status in IN_PROGRESS_STATUSES
+        # A terminal non-success status (failed/cancelled/errored) must fail this
+        # action so the masking_pipeline scope fails and routes to cleanup instead
+        # of exporting an unmasked/partially-masked database. Only 'finished' is
+        # allowed to fall through to export.
+        if not body['in_progress'] and status not in SUCCESS_STATUSES:
+            logging.error('DataMasque run ended in terminal non-success status: %s', status)
+            return func.HttpResponse(json.dumps(body), mimetype="application/json", status_code=500)
+
+    return func.HttpResponse(json.dumps(body), mimetype="application/json", status_code=res.status_code)

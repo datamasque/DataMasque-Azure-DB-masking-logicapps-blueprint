@@ -3,6 +3,7 @@ import azure.functions as func
 import json
 import os
 from ..services.providers import MicrosoftSQL
+from ..services.credentials import service_principal
 
 resource_group = os.environ['RESOURCE_GROUP']
 
@@ -10,9 +11,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Delete the staging Azure SQL server')
     # get content of body request
     req_body = req.get_json()
-    tenant_id = req_body.get('TenantID')
-    client_id = req_body.get('ClientID')
-    secret = req_body.get('ClientSecret')
+    tenant_id, client_id, secret = service_principal(req_body)
     sql_service = MicrosoftSQL(tenant_id, client_id, secret, resource_group)
     
     subscription_id = req_body.get('SubscriptionID')
@@ -21,4 +20,11 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
     
     res = sql_service.delete_server(subscription_id, source_db_instance_identifier)
 
-    return func.HttpResponse(json.dumps(res.json()), mimetype="application/json", status_code=res.status_code)
+    # A successful DELETE (200/202/204) often has an empty body; don't blow up
+    # parsing JSON during cleanup.
+    try:
+        body = res.json()
+    except ValueError:
+        body = {"status_code": res.status_code}
+
+    return func.HttpResponse(json.dumps(body), mimetype="application/json", status_code=res.status_code)

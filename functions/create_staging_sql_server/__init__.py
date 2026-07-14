@@ -3,6 +3,7 @@ import json
 import os
 import azure.functions as func
 from ..services.providers.microsoft_sql import MicrosoftSQL
+from ..services.credentials import service_principal
 
 from azure.keyvault.secrets import SecretClient
 from azure.identity import DefaultAzureCredential
@@ -16,9 +17,7 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     # get content of body request
     req_body = req.get_json()
-    tenant_id = req_body.get('TenantID')
-    client_id = req_body.get('ClientID')
-    secret = req_body.get('ClientSecret')
+    tenant_id, client_id, secret = service_principal(req_body)
     sql_service = MicrosoftSQL(tenant_id, client_id, secret, resource_group)
             
     subscription_id = req_body.get('SubscriptionID')
@@ -55,11 +54,8 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
         "DBSnapshotIdentifier": req_body.get('DBSnapshotIdentifier'),
         "SubscriptionID": subscription_id,
         "ResourceGroup": req_body.get('ResourceGroup'),
-        "TenantID": tenant_id,
-        "ClientID": client_id,
-        "ClientSecret": secret,
         "DATAMASQUE_CONNECTION_ID": DATAMASQUE_CONNECTION_ID,
         "DATAMASQUE_RULESET_ID": DATAMASQUE_RULESET_ID
     }
-    
+
     return func.HttpResponse(json.dumps(data), mimetype="application/json", status_code=res.status_code)

@@ -11,27 +11,33 @@ client_id = os.environ['CLIENT_ID']
 client_secret = os.environ['CLIENT_SECRET']
 database_id = os.environ['DATABASE_ID']
 
+
+def _summarise(database):
+    return {
+        "location": database['location'],
+        "sku": database['sku'],
+        "id": database['id'],
+        "name": database['name'],
+    }
+
+
 def checkDatabase(databases):
-    databaseResult = {}
-    hasDatabaseId = False
-    databases.sort(key=lambda x: x['properties']['creationDate'], reverse=True)
-    for database in databases:
-        if(database['properties']['databaseId'] == database_id):
-            hasDatabaseId =True
-            databaseResult = {
-                "location": database['location'],
-                "sku": database['sku'],
-                "id": database['id'],
-                "name": database['name']
-            }
-    if(not hasDatabaseId):
-        databaseResult = {
-                "location": databases[0]['location'],
-                "sku": databases[0]['sku'],
-                "id": databases[0]['id'],
-                "name": databases[0]['name']
-            }
-    return databaseResult
+    # Ignore databases still being created (no creationDate / not Online) and
+    # the implicit 'master' system database; guard against an empty result.
+    candidates = [
+        db for db in databases
+        if db.get('name') != 'master' and db.get('properties', {}).get('creationDate')
+    ]
+    if not candidates:
+        raise ValueError("No ready source database found on the Azure SQL server")
+
+    candidates.sort(key=lambda x: x['properties']['creationDate'], reverse=True)
+
+    # Prefer the database matching the configured database_id, else the newest.
+    for database in candidates:
+        if database['properties'].get('databaseId') == database_id:
+            return _summarise(database)
+    return _summarise(candidates[0])
 
 def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info('Fetch database with the latest creation time in the source Azure SQL server (single database)')
@@ -48,19 +54,20 @@ def main(req: func.HttpRequest) -> func.HttpResponse:
 
     # Gets a list of databases in the source Azure SQL database
     res = sql_service.get_list_of_databases_from_server(subscription_id, resource_group_source, source_db_instance_identifier)
-    if res.status_code == 200:
-        databases = list(res.json()['value'])
-        result = checkDatabase(databases)
+    if res.status_code != 200:
+        # Surface the upstream error and propagate its status so the workflow
+        # fails fast rather than dereferencing a missing 'value'.
+        return func.HttpResponse(json.dumps(res.json()), mimetype="application/json", status_code=res.status_code)
+
+    databases = list(res.json().get('value', []))
+    result = checkDatabase(databases)
     data = {
-        "DBSnapshotIdentifier": res.json() if res.status_code != 200 else result,
+        "DBSnapshotIdentifier": result,
         "DBInstanceIdentifier": source_db_instance_identifier,
         "SubscriptionID": subscription_id,
         "ResourceGroup": resource_group_source,
-        "TenantID": tenant_id,
-        "ClientID": client_id,
-        "ClientSecret": client_secret,
         "DATAMASQUE_CONNECTION_ID": DATAMASQUE_CONNECTION_ID,
         "DATAMASQUE_RULESET_ID": DATAMASQUE_RULESET_ID
     }
-    
+
     return func.HttpResponse(json.dumps(data), mimetype="application/json", status_code=res.status_code)

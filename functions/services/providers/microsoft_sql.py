@@ -1,239 +1,113 @@
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from ..token import Token
+
+
+def _session() -> requests.Session:
+    """A requests Session that retries transient ARM throttling/5xx errors.
+
+    Azure Resource Manager returns 429 with a Retry-After header when throttled;
+    retrying with backoff avoids failing the workflow (and orphaning the staging
+    server) on a transient throttle.
+
+    POST is intentionally excluded: the only POST through this session is the
+    database export, which is not idempotent — a retried transient 5xx could
+    kick off a second export. GET/PUT/DELETE against ARM are safe to retry.
+    """
+    retry = Retry(
+        total=5,
+        backoff_factor=1,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET", "PUT", "DELETE"),
+        respect_retry_after_header=True,
+    )
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    return session
+
 
 class MicrosoftSQL:
     PROVIDES = "Microsoft.Sql"
     API_VERSION = "2021-11-01-preview"
-    
+
     def __init__(self, tenant_id: str, client_id: str, secret: str, resource_group: str):
         self.__token = Token(tenant_id=tenant_id, client_id=client_id, secret=secret)
         self.__resource_group = resource_group
-    
+        self.__session = _session()
+
+    def __auth_header(self, content_type: bool = False) -> dict:
+        headers = {"Authorization": f"Bearer {self.__token.get_access_token()}"}
+        if content_type:
+            headers["Content-Type"] = "application/json"
+        return headers
+
     def get_status_process(self, azure_async_operation: str):
-        """Gets a status of process in Azure Cloud
+        """Gets the status of a long-running operation in Azure."""
+        return self.__session.get(url=azure_async_operation, headers=self.__auth_header())
 
-        Args:
-            azure_async_operation (str): The url is a address of a operations 
-
-        Raises:
-            ex: throw exception
-
-        Returns:
-            Response: object
-        """
-        try:
-            res = requests.get(url=azure_async_operation, headers= {'Authorization': f'Bearer {self.__token.get_access_token()}'})
-            
-            return res
-        except BaseException as ex:
-            raise ex
-        
-    
     def get_configuration_sql_server(self, subscription_id: str, resource_group_name: str, server_name: str):
-        """Get configuration a server
+        """Get the configuration of a SQL server."""
+        url = (
+            "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}"
+            "/providers/{2}/servers/{3}?api-version={4}"
+        ).format(subscription_id, resource_group_name, self.PROVIDES, server_name, self.API_VERSION)
+        return self.__session.get(url, headers=self.__auth_header())
 
-        Args:
-            subscription_id (str): The subscription ID that identifies an Azure subscription.
-            resource_group_name (str): The name of the resource group that contains the resource. You can obtain this value from the Azure Resource Manager API or the portal.
-            server_name (str): The name of the server.
-
-        Raises:
-            ex: throw exception
-
-        Returns:
-            Response: Server
-        """
-        try:
-            URL_FORMAT = "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}/providers/{2}/servers/{3}?api-version={4}"
-            url = URL_FORMAT.format(subscription_id, resource_group_name, self.PROVIDES, server_name, self.API_VERSION)
-            res = requests.get(url, headers= {'Authorization': f'Bearer {self.__token.get_access_token()}'})
-            
-            return res
-        except BaseException as ex:
-            raise ex
-        
     def get_list_of_databases_from_server(self, subscription_id: str, resource_group_name: str, server_name: str):
-        """Gets a list of databases.
+        """Gets a list of databases on a server."""
+        url = (
+            "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}"
+            "/providers/{2}/servers/{3}/databases?api-version={4}"
+        ).format(subscription_id, resource_group_name, self.PROVIDES, server_name, self.API_VERSION)
+        return self.__session.get(url, headers=self.__auth_header())
 
-        Args:
-            subscription_id (str): The subscription ID that identifies an Azure subscription.
-            resource_group_name (str): The name of the resource group that contains the resource. You can obtain this value from the Azure Resource Manager API or the portal.
-            server_name (str): The name of the server.
-
-        Raises:
-            ex: throw exception
-
-        Returns:
-            Response: DatabaseListResult
-        """
-        try:
-            URL_FORMAT = "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}/providers/{2}/servers/{3}/databases?api-version={4}"
-            url = URL_FORMAT.format(subscription_id, resource_group_name, self.PROVIDES, server_name, self.API_VERSION)
-            res = requests.get(url, headers= {'Authorization': f'Bearer {self.__token.get_access_token()}'})
-                        
-            return res
-        except BaseException as ex:
-            raise ex
-        
     def creates_or_updates_server(self, subscription_id: str, server_name: str, body):
-        """Creates or updates a server
+        """Creates or updates a server."""
+        url = (
+            "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}"
+            "/providers/{2}/servers/{3}?api-version={4}"
+        ).format(subscription_id, self.__resource_group, self.PROVIDES, server_name, self.API_VERSION)
+        return self.__session.put(url, headers=self.__auth_header(content_type=True), json=body)
 
-        Args:
-            subscription_id (str): The subscription ID that identifies an Azure subscription.
-            resource_group_name (str): The name of the resource group that contains the resource. You can obtain this value from the Azure Resource Manager API or the portal.
-            server_name (str): The name of the server.
-            body (object): Body request
-            
-        Raises:
-            ex: throw exception
-        
-        Returns:
-            Response: Server
-        """
-        try:
-            URL_FORMAT = "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}/providers/{2}/servers/{3}?api-version={4}"
-            url = URL_FORMAT.format(subscription_id, self.__resource_group, self.PROVIDES, server_name, self.API_VERSION)
-            headers = {
-                "Authorization": f'Bearer {self.__token.get_access_token()}',
-                "Content-Type": "application/json"
-            }
-            
-            res = requests.put(url, headers=headers, json=body)
-            return res
-        except BaseException as ex:
-            raise ex
-        
     def create_or_update_database(self, subscription_id: str, server_name: str, database_name: str, body):
-        """Creates a new database or updates an existing database.
+        """Creates a new database or updates an existing database."""
+        url = (
+            "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}"
+            "/providers/{2}/servers/{3}/databases/{4}?api-version={5}"
+        ).format(subscription_id, self.__resource_group, self.PROVIDES, server_name, database_name, self.API_VERSION)
+        return self.__session.put(url, headers=self.__auth_header(content_type=True), json=body)
 
-        Args:
-            subscription_id (str): The subscription ID that identifies an Azure subscription.
-            resource_group_name (str): The name of the resource group that contains the resource. You can obtain this value from the Azure Resource Manager API or the portal.
-            server_name (str): The name of the server.
-            database_name (str): The name of the database.
-            body (object): Body request
-
-        Raises:
-            ex: throw exception
-
-        Returns:
-            Response: Database
-        """
-        try:
-            URL_FORMAT = "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}/providers/{2}/servers/{3}/databases/{4}?api-version={5}"
-            url = URL_FORMAT.format(subscription_id, self.__resource_group, self.PROVIDES, server_name, database_name, self.API_VERSION)
-            headers = {
-                "Authorization": f'Bearer {self.__token.get_access_token()}',
-                "Content-Type": "application/json"
-            }
-            
-            res = requests.put(url, headers=headers, json=body)
-            return res
-        except BaseException as ex:
-            raise ex
-        
-        
     def export_database_to_blod_storage(self, subscription_id: str, server_name: str, database_name: str, body):
-        """Exports a database to blod storage
+        """Exports a database to blob storage."""
+        url = (
+            "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}"
+            "/providers/{2}/servers/{3}/databases/{4}/export?api-version={5}"
+        ).format(subscription_id, self.__resource_group, self.PROVIDES, server_name, database_name, self.API_VERSION)
+        return self.__session.post(url, headers=self.__auth_header(content_type=True), json=body)
 
-        Args:
-            subscription_id (str): The subscription ID that identifies an Azure subscription.
-            resource_group_name (str): The name of the resource group that contains the resource. You can obtain this value from the Azure Resource Manager API or the portal.
-            server_name (str): The name of the server.
-            database_name (str): The name of the database.
-            body (object): Body request
-
-        Raises:
-            ex: throw exception
-
-        Returns:
-            Response: ImportExportOperationResult
-        """
-        try:
-            URL_FORMAT = "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}/providers/{2}/servers/{3}/databases/{4}/export?api-version={5}"
-            url = URL_FORMAT.format(subscription_id, self.__resource_group, self.PROVIDES, server_name, database_name, self.API_VERSION)
-            headers = {
-                "Authorization": f'Bearer {self.__token.get_access_token()}',
-                "Content-Type": "application/json"
-            }
-            
-            res = requests.post(url, headers=headers, json=body)
-            return res
-        except BaseException as ex:
-            raise ex
-        
     def delete_server(self, subscription_id: str, server_name: str):
-        """Deletes a server.
+        """Deletes a server."""
+        url = (
+            "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}"
+            "/providers/{2}/servers/{3}?api-version={4}"
+        ).format(subscription_id, self.__resource_group, self.PROVIDES, server_name, self.API_VERSION)
+        return self.__session.delete(url, headers=self.__auth_header())
 
-        Args:
-            subscription_id (str): The subscription ID that identifies an Azure subscription.
-            resource_group_name (str): The name of the resource group that contains the resource. You can obtain this value from the Azure Resource Manager API or the portal.
-            server_name (str): The name of the server.
-
-        Raises:
-            ex: throw exception
-
-        Returns:
-            Response: object
-        """
-        try:
-            URL_FORMAT = "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}/providers/{2}/servers/{3}?api-version={4}"
-            url = URL_FORMAT.format(subscription_id, self.__resource_group, self.PROVIDES, server_name, self.API_VERSION)
-            res = requests.delete(url, headers={ "Authorization": f'Bearer {self.__token.get_access_token()}' })
-            
-            return res
-        except BaseException as ex:
-            raise ex
-        
     def get_a_list_of_firewall_rules_by_server(self, subscription_id: str, resource_group_name: str, server_name: str):
-        """Gets a list of firewall rules.
+        """Gets a list of firewall rules for a server."""
+        url = (
+            "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}"
+            "/providers/{2}/servers/{3}/firewallRules?api-version={4}"
+        ).format(subscription_id, resource_group_name, self.PROVIDES, server_name, self.API_VERSION)
+        return self.__session.get(url, headers=self.__auth_header())
 
-        Args:
-            subscription_id (str): The subscription ID that identifies an Azure subscription.
-            resource_group_name (str): The name of the resource group that contains the resource. You can obtain this value from the Azure Resource Manager API or the portal.
-            server_name (str): The name of the server.
-
-        Raises:
-            ex: throw exception
-
-        Returns:
-            Response: FirewallRuleListResult
-        """
-        try:
-            URL_FORMAT = "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}/providers/{2}/servers/{3}/firewallRules?api-version={4}"
-            url = URL_FORMAT.format(subscription_id, resource_group_name, self.PROVIDES, server_name, self.API_VERSION)
-            res = requests.get(url, headers={ "Authorization": f'Bearer {self.__token.get_access_token()}' })
-            
-            return res
-        except BaseException as ex:
-            raise ex
-        
     def creates_or_updates_a_firewall_rule(self, subscription_id: str, server_name: str, firewall_rule_name: str, body):
-        """Creates or updates a firewall rule.
-
-        Args:
-            subscription_id (str): The subscription ID that identifies an Azure subscription.
-            resource_group_name (str): The name of the resource group that contains the resource. You can obtain this value from the Azure Resource Manager API or the portal.
-            server_name (str): The name of the server.
-            firewall_rule_name (str): The name of the firewall rule.
-            body (object): { properties.endIpAddress, properties.startIpAddress }
-
-        Raises:
-            ex: throw exception
-
-        Returns:
-            Response: FirewallRule
-        """
-        try:
-            URL_FORMAT = "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}/providers/{2}/servers/{3}/firewallRules/{4}?api-version={5}"
-            url = URL_FORMAT.format(subscription_id, self.__resource_group, self.PROVIDES, server_name, firewall_rule_name, self.API_VERSION)
-            headers = {
-                "Authorization": f'Bearer {self.__token.get_access_token()}',
-                "Content-Type": "application/json"
-            }
-            
-            res = requests.put(url, headers=headers, json=body)
-            return res
-        except BaseException as ex:
-            raise ex
+        """Creates or updates a firewall rule."""
+        url = (
+            "https://management.azure.com/subscriptions/{0}/resourceGroups/{1}"
+            "/providers/{2}/servers/{3}/firewallRules/{4}?api-version={5}"
+        ).format(subscription_id, self.__resource_group, self.PROVIDES, server_name, firewall_rule_name, self.API_VERSION)
+        return self.__session.put(url, headers=self.__auth_header(content_type=True), json=body)
